@@ -13,8 +13,8 @@ interface IERC721 {
 
 contract ArtCommission {
     //ALL PRICES IN WEI!!
-    address public artist;
-    address public buyer;
+    address payable public artist;
+    address payable public buyer;
     uint256 upfrontPayment = 0;
     uint256 lastPayment = 0 ;
     uint256 insuranceAmount;
@@ -24,12 +24,16 @@ contract ArtCommission {
     uint256 artID;
     bool artistInitiated = true;
     uint256 timeInitiated;
+    mapping(address => uint256) balances;
+    bool buyerReleaseGoodFaith;
+    bool artistReleaseGoodFaith;
+
 
     enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
     State public progress;
     
     // buyer payment amount is locked in the contract upon deployment
-    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
+    constructor(address payable _buyer, address payable _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
 
         //check that the buyer or the artist is creating the contract
         require(msg.sender == buyer || msg.sender == artist, "Third party cannot initiate contract");
@@ -70,25 +74,37 @@ contract ArtCommission {
     }
 
     //this confirms the parameters set in the constructor are ok with the other party
-    function contractConfirm() external payable {
+    function contractConfirm() external onlyParties payable {
+        //the party who did not propose the contract must confirm the project
+        if (artistInitiated == false) {
+            require(msg.sender == artist);
+        } else {
+            require(msg.sender == buyer);
+        }
+
         //set the state to confirmed
         progress = State.Confirmed;
     }
 
+    //Once the contract has been confirmed by both parties, add funds to the contract
     function fund() public onlyParties payable {
         require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
 
         if (msg.sender == artist) {
             require(msg.value == insuranceAmount/2, "Did not send insurance value");
+
+            balances[msg.sender] += msg.value;
         }
 
         if (msg.sender == buyer) {
             require(msg.value == insuranceAmount/2+ upfrontPayment, "Did not pay insurance and deposit");
+            balances[msg.sender] += msg.value;
         }
 
         if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
             progress = State.Funded;
         }
+
     }
 
     //the artist submits work to the commission contract
@@ -130,13 +146,22 @@ contract ArtCommission {
     }
 
     function goodFaithRelease() public onlyParties {
-
+        if (msg.sender == buyer) { buyerReleaseGoodFaith = true; }
+        if (msg.sender == artist) { artistReleaseGoodFaith = true; }
+        require(buyerReleaseGoodFaith && artistReleaseGoodFaith, "Both artists have not agreed to release"); 
+        //return insurance and balance
     }
 
     function raiseDispute() public onlyParties {
-
+        //set some time requirement before someone can raise a dispute
         progress = State.Disputed;
 
         //TODO:deal with the DAO contract
+        uint256 buyerRefund = balances[buyer];
+        uint256 artistRefund = balances[artist];
+        balances[artist] = 0;
+        balances[buyer] = 0;
+        buyer.transfer(buyerRefund);
+        artist.transfer(artistRefund);
     }
 }
