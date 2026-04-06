@@ -89,8 +89,8 @@ contract ArtCommission {
     function payInFullAndRelease() external onlyBuyer {
         
         //check that the msg.value is a payment in full
-        require(msg.value/100 == lastPaymentPercent, "Not the expected final payment")
-        require(progress == State.WorkCompleted, "Artwork not submitted")
+        require(msg.value/100 == lastPaymentPercent, "Not the expected final payment");
+        require(progress == State.WorkCompleted, "Artwork not submitted");
   
         progress = State.Completed;
 
@@ -98,7 +98,7 @@ contract ArtCommission {
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
         //transfer the payment to the artist
-        artist.transfer(price)
+        artist.transfer(price);
 
         //TODO: do we return the insurance or some portion of the insurance? 
     }
