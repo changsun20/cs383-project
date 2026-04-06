@@ -15,8 +15,8 @@ contract ArtCommission {
     //ALL PRICES IN WEI!!
     address public artist;
     address public buyer;
-    uint256 upfrontPaymentPercent;
-    uint256 lastPaymentPercent;
+    uint256 upfrontPayment = 0;
+    uint256 lastPayment = 0 ;
     uint256 insuranceAmount;
     uint256 fullPrice;
     uint256 numberOfDaysToCompletion;
@@ -27,20 +27,20 @@ contract ArtCommission {
     State public progress;
     
     // buyer payment amount is locked in the contract upon deployment
-    constructor(uint256 _insuranceAmount, uint256 price, uint256 _upfrontPaymentPercent, uint256 timeframe) payable {
+    constructor(uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
         //The buyer will construct the contract
         buyer = payable(msg.sender);
 
         //require the amount of insurance to be more than .015 ETH in total, about .075 or $15 per party
         require(_insuranceAmount > 7500000000000000, "Insurance too low");
         insuranceAmount = _insuranceAmount;
-        upfrontPaymentPercent = _upfrontPaymentPercent;
+        upfrontPayment = _upfrontPayment;
+        lastPayment = price - upfrontPayment;
         fullPrice = price;
         numberOfDaysToCompletion = timeframe;
-        lastPaymentPercent = 100 - upfrontPaymentPercent;
+        
 
-        //check that the value sent is the upfront percent of the total price price and the insurance amount
-        uint256 upfrontPayment = price * upfrontPaymentPercent / 100;
+        //check that the value sent is the upfront deposit and the insurance amount
         require(msg.value == upfrontPayment + insuranceAmount);
 
         progress = State.Proposed;
@@ -72,7 +72,7 @@ contract ArtCommission {
 
     //the artist submits work to the commission contract
     function acceptArt(address nft, uint256 tokenID) external onlyArtist {
-        require(progress == State.Confirmed, "Contract has not been accepted by both parties")
+        require(progress == State.Confirmed, "Contract has not been accepted by both parties");
         artwork = IERC721(nft);
         artID = tokenID;
 
@@ -86,10 +86,10 @@ contract ArtCommission {
     }
 
     //the buyer pays for work, work and payment are released
-    function payInFullAndRelease() external onlyBuyer {
+    function payInFullAndRelease() external onlyBuyer payable {
         
         //check that the msg.value is a payment in full
-        require(msg.value/100 == lastPaymentPercent, "Not the expected final payment");
+        require(msg.value + upfrontPayment == fullPrice , "Not the expected final payment");
         require(progress == State.WorkCompleted, "Artwork not submitted");
   
         progress = State.Completed;
@@ -98,7 +98,7 @@ contract ArtCommission {
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
         //transfer the payment to the artist
-        artist.transfer(price);
+        //artist.transfer(price)
 
         //TODO: do we return the insurance or some portion of the insurance? 
     }
