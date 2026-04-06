@@ -22,28 +22,35 @@ contract ArtCommission {
     uint256 numberOfDaysToCompletion;
     IERC721 artwork;
     uint256 artID;
+    bool artistInitiated = true;
+    uint256 timeInitiated;
 
-    enum State{Proposed, Confirmed, WorkCompleted, WorkPayed, Completed, Disputed}
+    enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
     State public progress;
     
     // buyer payment amount is locked in the contract upon deployment
-    constructor(uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
-        //The buyer will construct the contract
-        buyer = payable(msg.sender);
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
 
+        //check that the buyer or the artist is creating the contract
+        require(msg.sender == buyer || msg.sender == artist, "Third party cannot initiate contract");
+        
         //require the amount of insurance to be more than .015 ETH in total, about .075 or $15 per party
         require(_insuranceAmount > 7500000000000000, "Insurance too low");
+
+        buyer = _buyer;
+        artist = _artist;
         insuranceAmount = _insuranceAmount;
         upfrontPayment = _upfrontPayment;
         lastPayment = price - upfrontPayment;
         fullPrice = price;
         numberOfDaysToCompletion = timeframe;
-        
-
-        //check that the value sent is the upfront deposit and the insurance amount
-        require(msg.value == upfrontPayment + insuranceAmount);
-
+    
         progress = State.Proposed;
+
+        //check if the buyer or the artist will need to confirm the contract
+        if (buyer == msg.sender) {
+            artistInitiated == false;
+        }
 
     }
 
@@ -63,11 +70,25 @@ contract ArtCommission {
     }
 
     //this confirms the parameters set in the constructor are ok with the other party
-    function artistConfirm() external payable onlyArtist {
-        require(msg.value == insuranceAmount, "Insurance too low");
-        
+    function contractConfirm() external payable {
         //set the state to confirmed
         progress = State.Confirmed;
+    }
+
+    function fund() public onlyParties payable {
+        require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
+
+        if (msg.sender == artist) {
+            require(msg.value == insuranceAmount/2, "Did not send insurance value");
+        }
+
+        if (msg.sender == buyer) {
+            require(msg.value == insuranceAmount/2+ upfrontPayment, "Did not pay insurance and deposit");
+        }
+
+        if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
+            progress = State.Funded;
+        }
     }
 
     //the artist submits work to the commission contract
@@ -108,7 +129,11 @@ contract ArtCommission {
         //TODO
     }
 
-    function raiseDispute() external onlyParties {
+    function goodFaithRelease() public onlyParties {
+
+    }
+
+    function raiseDispute() public onlyParties {
 
         progress = State.Disputed;
 
