@@ -4,6 +4,8 @@ pragma solidity ^0.8.26;
 // Import this file to use console.log
 import "hardhat/console.sol";
 
+//TODO: balances are not consistently used 
+
 // referencing functions from OpenZeppelin ERC721 contracts
 interface IERC721 {
     function safeTransferFrom(address from, address to, uint256 tokenID) external; // safely transfers ERC721 for both EOA and contract addresses
@@ -134,10 +136,22 @@ contract ArtCommission {
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
+
+        //Decrement the buyer balance - not sure this is the correct move TODO
+        balances[buyer] -= fullPrice;
         //transfer the payment to the artist
-        //artist.transfer(price)
+        //we cannot use balances for this, because balances is assigned to the person who put in the money
+        //TODO: design issue with balances
+        artist.transfer(fullPrice);
 
         //TODO: do we return the insurance or some portion of the insurance? 
+        //My contention - for successful contracts we return insurance
+        //Can we integrate balances here?
+        balances[artist] = 0;
+        balances[buyer] = 0;
+        artist.transfer(insuranceAmount/2);
+        buyer.transfer(insuranceAmount/2);
+
     }
 
     //update the trust score of buyer and artist
@@ -149,7 +163,18 @@ contract ArtCommission {
         if (msg.sender == buyer) { buyerReleaseGoodFaith = true; }
         if (msg.sender == artist) { artistReleaseGoodFaith = true; }
         require(buyerReleaseGoodFaith && artistReleaseGoodFaith, "Both artists have not agreed to release"); 
-        //return insurance and balance
+        
+
+        //return balance of what was paid to the contract
+
+        //maybe overcautious of re-entrancy, and maybe still an issue
+        uint256 artistAmt = balances[artist];
+        uint256 buyerAmt = balances[buyer];
+
+        balances[artist] = 0;
+        balances[buyer] = 0;
+        artist.transfer(artistAmt);
+        buyer.transfer(buyerAmt);
     }
 
     function raiseDispute() public onlyParties {
