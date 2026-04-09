@@ -134,8 +134,8 @@ contract ArtCommission {
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
-        //TODO: transfer the payment to the artist
-        //artist.transfer(price);
+        //transfer the payment to the artist
+        //artist.transfer(price)
 
         //TODO: do we return the insurance or some portion of the insurance? 
     }
