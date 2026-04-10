@@ -4,24 +4,29 @@ pragma solidity ^0.8.26;
 // Import this file to use console.log
 import "hardhat/console.sol";
 
-// referencing functions from OpenZeppelin ERC721 contracts
-interface IERC721 {
-    function safeTransferFrom(address from, address to, uint256 tokenID) external; // safely transfers ERC721 for both EOA and contract addresses
-    function approve(address to, uint256 tokenID) external; // required for safeTransfer involving a contract, approves "to" address as recipient
-    function ownerOf(uint256 tokenID) external view returns (address);
-}
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
-contract ArtCommission {
+// inherit IERC271Reciever & implement onERC721Received to enable smart contract to recieve nft with safeTransferFrom
+contract ArtCommission is IERC721Receiver {
     //ALL PRICES IN WEI!!
+    // commission participants
     address public artist;
     address public buyer;
-    uint256 upfrontPayment = 0;
-    uint256 lastPayment = 0 ;
-    uint256 insuranceAmount;
+
+    uint256 upfrontPayment = 0; // mutually agreed initial payment for commission (?)
+    uint256 lastPayment = 0 ; // mutually agreed final payments for commission (?)
+    uint256 insuranceAmount; // amount parties input in case of passing dispute case to DAO
     uint256 fullPrice;
-    uint256 numberOfDaysToCompletion;
+
+    uint256 numberOfDaysToCompletion; // deadline for accept art function?
+
     IERC721 artwork;
     uint256 artID;
+
+    bool buyerBreakFaith = false;
+    bool artistBreakFaith = false;
+
     bool artistInitiated = true;
     uint256 timeInitiated;
 
@@ -29,8 +34,9 @@ contract ArtCommission {
     State public progress;
     
     // buyer payment amount is locked in the contract upon deployment
-    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) payable {
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) {
 
+        // NOTE: CHECK THIS, BUYER AND ARTIST NOT ASSIGNED AT THIS POINT
         //check that the buyer or the artist is creating the contract
         require(msg.sender == buyer || msg.sender == artist, "Third party cannot initiate contract");
         
@@ -49,7 +55,7 @@ contract ArtCommission {
 
         //check if the buyer or the artist will need to confirm the contract
         if (buyer == msg.sender) {
-            artistInitiated == false;
+            artistInitiated = false;
         }
 
     }
@@ -69,8 +75,14 @@ contract ArtCommission {
         _;
     }
 
+    // Implementation onERC721Received; if sender of nft to contract is not artist, reverts
+    function onERC721Received(address operator, address from, uint256 tokenID, bytes calldata data) public override returns (bytes4) {
+        require(from == artist, "Artist must input nft");
+        return this.onERC721Received.selector;
+    }
+
     //this confirms the parameters set in the constructor are ok with the other party
-    function contractConfirm() external payable {
+    function contractConfirm() external onlyParties payable {
         //set the state to confirmed
         progress = State.Confirmed;
     }
@@ -83,7 +95,7 @@ contract ArtCommission {
         }
 
         if (msg.sender == buyer) {
-            require(msg.value == insuranceAmount/2+ upfrontPayment, "Did not pay insurance and deposit");
+            require(msg.value == (insuranceAmount/2) + upfrontPayment, "Did not pay insurance and deposit");
         }
 
         if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
@@ -93,44 +105,65 @@ contract ArtCommission {
 
     //the artist submits work to the commission contract
     function acceptArt(address nft, uint256 tokenID) external onlyArtist {
-        require(progress == State.Confirmed, "Contract has not been accepted by both parties");
-        artwork = IERC721(nft);
-        artID = tokenID;
+        IERC721 _artwork = IERC721(nft); // temp IERC271(nft) to avoid storing before require checks
 
-        require(artwork.ownerOf(tokenID) == artist, "Artist is not owner of the nft");
+        require(progress == State.Funded, "Contract has not been funded by both parties");
+        require(_artwork.ownerOf(tokenID) == msg.sender, "Sender is not owner of the nft");
 
         // artist must have already approved this contract to recieve the nft
-        //TODO: does safeTransferFrom require onERC721Received() to be implemented?
-        artwork.safeTransferFrom(msg.sender, address(this), tokenID);
+        // such as IERC721(nft).approve(address(our contract), tokenId);
 
+        // transfer nft from sender to this contract
+        _artwork.safeTransferFrom(msg.sender, address(this), tokenID);
+
+        // store nft details
+        artwork = _artwork;
+        artID = tokenID;
+
+        // update progress state
         progress = State.WorkCompleted;
     }
 
-    //the buyer pays for work, work and payment are released
+    //locked funds from buyer go to artist, locked artwork goes to buyer
     function payInFullAndRelease() external onlyBuyer payable {
-        
-        //check that the msg.value is a payment in full
-        require(msg.value + upfrontPayment == fullPrice , "Not the expected final payment");
         require(progress == State.WorkCompleted, "Artwork not submitted");
-  
-        progress = State.Completed;
+        //check that the msg.value is a payment in full
+        require(msg.value + upfrontPayment == fullPrice , "Not the expected full final payment");
 
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
         //transfer the payment to the artist
-        //artist.transfer(price)
+        payable(artist).transfer(upfrontPayment);
+        payable(artist).transfer(msg.value);
 
-        //TODO: do we return the insurance or some portion of the insurance? 
+        //TODO: do we return the insurance or some portion of the insurance?
+        payable(artist).transfer(insuranceAmount/2);
+        payable(buyer).transfer(insuranceAmount/2);
+
+        progress = State.Completed;
     }
 
     //update the trust score of buyer and artist
     function updateTrustworthiness() external {
-        //TODO
+        //TODO -- extra/if time
     }
 
     function goodFaithRelease() public onlyParties {
+        if (msg.sender == buyer) {
+            buyerBreakFaith = true;
+        }
+        if (msg.sender == artist) {
+            artistBreakFaith = true;
+        }
 
+        require(buyerBreakFaith == true && artistBreakFaith == true, "Buyer or artist has not approved of goodFaithRelease");
+
+        // return art
+        artwork.safeTransferFrom(address(this), artist, artID);
+
+        // return locked funds from buyer
+        payable(buyer).transfer(fullPrice); // or should it just be a portion of the price? and some wei to artist?
     }
 
     function raiseDispute() public onlyParties {
