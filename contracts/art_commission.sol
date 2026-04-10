@@ -192,7 +192,7 @@ contract ArtCommission is IERC721Receiver {
         uint256 artistRefund = balances[artist];
         balances[artist] = 0;
         balances[buyer] = 0;
-        buyer.transfer(buyerRefund);
-        artist.transfer(artistRefund);
+        payable(buyer).transfer(buyerRefund);
+        payable(artist).transfer(artistRefund);
     }
 }
