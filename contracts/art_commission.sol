@@ -31,7 +31,6 @@ contract ArtCommission is IERC721Receiver {
 
     bool artistInitiated = true;
     uint256 timeInitiated;
-    mapping(address => uint256) balances;
 
 
     enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
@@ -105,7 +104,7 @@ contract ArtCommission is IERC721Receiver {
         if (msg.sender == artist) {
             require(msg.value == insuranceAmount/2, "Did not send insurance value");
 
-            balances[msg.sender] += msg.value;
+         
         }
 
         if (msg.sender == buyer) {
@@ -147,9 +146,6 @@ contract ArtCommission is IERC721Receiver {
 
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
-
-        //Decrement the buyer balance - not sure this is the correct move TODO
-        balances[buyer] -= fullPrice;
         //transfer the payment to the artist
         payable(artist).transfer(fullPrice);
 
@@ -188,10 +184,6 @@ contract ArtCommission is IERC721Receiver {
         progress = State.Disputed;
 
         //TODO:deal with the DAO contract
-        uint256 buyerRefund = balances[buyer];
-        uint256 artistRefund = balances[artist];
-        balances[artist] = 0;
-        balances[buyer] = 0;
         payable(buyer).transfer(buyerRefund);
         payable(artist).transfer(artistRefund);
     }
