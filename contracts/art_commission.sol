@@ -105,10 +105,10 @@ contract ArtCommission is IERC721Receiver {
 
     //the artist submits work to the commission contract
     function acceptArt(address nft, uint256 tokenID) external onlyArtist {
+        IERC721 _artwork = IERC721(nft); // temp IERC271(nft) to avoid storing before require checks
+
         require(progress == State.Funded, "Contract has not been funded by both parties");
         require(_artwork.ownerOf(tokenID) == msg.sender, "Sender is not owner of the nft");
-
-        IERC721 _artwork = IERC721(nft); // temp IERC271(nft) to avoid storing before require checks
 
         // artist must have already approved this contract to recieve the nft
         // such as IERC721(nft).approve(address(our contract), tokenId);
@@ -134,12 +134,12 @@ contract ArtCommission is IERC721Receiver {
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
         //transfer the payment to the artist
-        artist.transfer(upfrontPayment);
-        artist.transfer(msg.value);
+        payable(artist).transfer(upfrontPayment);
+        payable(artist).transfer(msg.value);
 
         //TODO: do we return the insurance or some portion of the insurance?
-        artist.transfer(insuranceAmount/2);
-        buyer.transfer(insuranceAmount/2);
+        payable(artist).transfer(insuranceAmount/2);
+        payable(buyer).transfer(insuranceAmount/2);
 
         progress = State.Completed;
     }
@@ -163,7 +163,7 @@ contract ArtCommission is IERC721Receiver {
         artwork.safeTransferFrom(address(this), artist, artID);
 
         // return locked funds from buyer
-        buyer.transfer(fullPrice); // or should it just be a portion of the price? and some wei to artist?
+        payable(buyer).transfer(fullPrice); // or should it just be a portion of the price? and some wei to artist?
     }
 
     function raiseDispute() public onlyParties {
