@@ -136,7 +136,6 @@ contract ArtCommission {
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
-
         //Decrement the buyer balance - not sure this is the correct move TODO
         balances[buyer] -= fullPrice;
         //transfer the payment to the artist
@@ -157,6 +156,7 @@ contract ArtCommission {
     //update the trust score of buyer and artist
     function updateTrustworthiness() external {
         //TODO
+        //reputation would have to be its own contract with a mapping that is called by commission contracts
     }
 
     function goodFaithRelease() public onlyParties {
@@ -166,13 +166,13 @@ contract ArtCommission {
         
 
         //return balance of what was paid to the contract
-
         //maybe overcautious of re-entrancy, and maybe still an issue
         uint256 artistAmt = balances[artist];
         uint256 buyerAmt = balances[buyer];
 
         balances[artist] = 0;
         balances[buyer] = 0;
+
         artist.transfer(artistAmt);
         buyer.transfer(buyerAmt);
     }
