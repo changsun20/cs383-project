@@ -13,12 +13,14 @@ contract ArtCommission is IERC721Receiver {
     // commission participants
     address public artist;
     address public buyer;
-
+    
     uint256 upfrontPayment = 0; // mutually agreed initial payment for commission (?)
+    //TODO use lastPayment
     uint256 lastPayment = 0 ; // mutually agreed final payments for commission (?)
     uint256 insuranceAmount; // amount parties input in case of passing dispute case to DAO
     uint256 fullPrice;
 
+    //TODO - Cannot dispute before this
     uint256 numberOfDaysToCompletion; // deadline for accept art function?
 
     IERC721 artwork;
@@ -29,16 +31,18 @@ contract ArtCommission is IERC721Receiver {
 
     bool artistInitiated = true;
     uint256 timeInitiated;
+    mapping(address => uint256) balances;
+
 
     enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
     State public progress;
     
     // buyer payment amount is locked in the contract upon deployment
-    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 price, uint256 _upfrontPayment, uint256 timeframe) {
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe) {
 
         // NOTE: CHECK THIS, BUYER AND ARTIST NOT ASSIGNED AT THIS POINT
         //check that the buyer or the artist is creating the contract
-        require(msg.sender == buyer || msg.sender == artist, "Third party cannot initiate contract");
+        require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");
         
         //require the amount of insurance to be more than .015 ETH in total, about .075 or $15 per party
         require(_insuranceAmount > 7500000000000000, "Insurance too low");
@@ -47,8 +51,8 @@ contract ArtCommission is IERC721Receiver {
         artist = _artist;
         insuranceAmount = _insuranceAmount;
         upfrontPayment = _upfrontPayment;
-        lastPayment = price - upfrontPayment;
-        fullPrice = price;
+        lastPayment = _price - upfrontPayment;
+        fullPrice = _price;
         numberOfDaysToCompletion = timeframe;
     
         progress = State.Proposed;
@@ -83,15 +87,25 @@ contract ArtCommission is IERC721Receiver {
 
     //this confirms the parameters set in the constructor are ok with the other party
     function contractConfirm() external onlyParties payable {
+        //the party who did not propose the contract must confirm the project
+        if (artistInitiated == false) {
+            require(msg.sender == artist);
+        } else {
+            require(msg.sender == buyer);
+        }
+
         //set the state to confirmed
         progress = State.Confirmed;
     }
 
+    //Once the contract has been confirmed by both parties, add funds to the contract
     function fund() public onlyParties payable {
         require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
 
         if (msg.sender == artist) {
             require(msg.value == insuranceAmount/2, "Did not send insurance value");
+
+            balances[msg.sender] += msg.value;
         }
 
         if (msg.sender == buyer) {
@@ -101,6 +115,7 @@ contract ArtCommission is IERC721Receiver {
         if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
             progress = State.Funded;
         }
+
     }
 
     //the artist submits work to the commission contract
@@ -133,20 +148,20 @@ contract ArtCommission is IERC721Receiver {
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
+        //Decrement the buyer balance - not sure this is the correct move TODO
+        balances[buyer] -= fullPrice;
         //transfer the payment to the artist
-        payable(artist).transfer(upfrontPayment);
-        payable(artist).transfer(msg.value);
+        payable(artist).transfer(fullPrice);
 
-        //TODO: do we return the insurance or some portion of the insurance?
         payable(artist).transfer(insuranceAmount/2);
         payable(buyer).transfer(insuranceAmount/2);
-
         progress = State.Completed;
     }
 
     //update the trust score of buyer and artist
     function updateTrustworthiness() external {
         //TODO -- extra/if time
+        //reputation would have to be its own contract with a mapping that is called by commission contracts
     }
 
     function goodFaithRelease() public onlyParties {
@@ -162,14 +177,22 @@ contract ArtCommission is IERC721Receiver {
         // return art
         artwork.safeTransferFrom(address(this), artist, artID);
 
-        // return locked funds from buyer
+        // return locked funds to buyer
         payable(buyer).transfer(fullPrice); // or should it just be a portion of the price? and some wei to artist?
+        payable(artist).transfer(insuranceAmount/2);
+        payable(buyer).transfer(insuranceAmount/2);
     }
 
     function raiseDispute() public onlyParties {
-
+        //set some time requirement before someone can raise a dispute
         progress = State.Disputed;
 
         //TODO:deal with the DAO contract
+        uint256 buyerRefund = balances[buyer];
+        uint256 artistRefund = balances[artist];
+        balances[artist] = 0;
+        balances[buyer] = 0;
+        payable(buyer).transfer(buyerRefund);
+        payable(artist).transfer(artistRefund);
     }
 }
