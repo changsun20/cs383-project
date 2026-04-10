@@ -51,7 +51,7 @@ contract ArtCommission is IERC721Receiver {
         artist = _artist;
         insuranceAmount = _insuranceAmount;
         upfrontPayment = _upfrontPayment;
-        lastPayment = price - upfrontPayment;
+        lastPayment = _price - upfrontPayment;
         fullPrice = _price;
         numberOfDaysToCompletion = timeframe;
     
