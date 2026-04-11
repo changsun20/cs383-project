@@ -161,7 +161,7 @@ contract ArtCommission is IERC721Receiver {
     function payInFullAndRelease() external onlyBuyer payable {
         require(progress == State.WorkCompleted, "Artwork not submitted");
         //check that the msg.value is a payment in full
-        require(msg.value + upfrontPayment == fullPrice , "Not the expected full final payment");
+        require(msg.value == lastPayment , "Not the expected full final payment");
 
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
@@ -201,11 +201,12 @@ contract ArtCommission is IERC721Receiver {
 
     function raiseDispute() public onlyParties {
         //set some time requirement before someone can raise a dispute
+        uint256 elapsedDays = (block.timestamp - block.timestamp) / 1 days;
+        require(elapsedDays > numberOfDaysToCompletion, "Must leave time before transaction can be disputed");
         progress = State.Disputed;
 
-        //TODO:deal with the DAO contract
-        payable(buyer).transfer(buyerRefund);
-        payable(artist).transfer(artistRefund);
+        //payable(buyer).transfer(buyerRefund);
+        //payable(artist).transfer(artistRefund);
     }
 
     // skeleton DAO result options -- sorry...kind of put some code based on what we discussed monday
@@ -213,40 +214,40 @@ contract ArtCommission is IERC721Receiver {
 
     // logic of DAO voting outcome 1: jury decides the artist wins the dispute
     function artistWins() public onlyDAO payable {
-        require(progress = State.Disputed, "Voting outcome only applicable for disputed commissions");
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (artwork != address(0)) {
+        if (address(artwork) != address(0)) {
             artwork.safeTransferFrom(address(this), artist, artID);
         }
         payable(artist).transfer(insuranceAmount/2);
         payable(DAO).transfer(insuranceAmount/2); // buyer's insurance goes to DAO
 
-        progress = State.Completed
+        progress = State.Completed;
     }
 
     // logic of DAO voting outcome 2: jury decides the buyer wins the dispute
     function buyerWins() public onlyDAO payable {
-        require(progress = State.Disputed, "Voting outcome only applicable for disputed commissions");
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (artwork != address(0)) {
+        if (address(artwork) != address(0)) {
             artwork.safeTransferFrom(address(this), buyer, artID);
         }
         payable(buyer).transfer(insuranceAmount/2);
         payable(DAO).transfer(insuranceAmount/2); // artist's insurance goes to DAO
 
-        progress = State.Completed
+        progress = State.Completed;
     }
 
     // logic of DAO voting outcome 3: jury decides neither party wins dispute
     function neitherWins() public onlyDAO payable {
-        require(progress = State.Disputed, "Voting outcome only applicable for disputed commissions");
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (artwork != address(0)) {
+        if (address(artwork) != address(0)) {
             artwork.safeTransferFrom(address(this), artist, artID);
         }
         payable(buyer).transfer(fullPrice);
         payable(DAO).transfer(insuranceAmount);
 
-        progress = State.Completed
+        progress = State.Completed;
     }
 }
