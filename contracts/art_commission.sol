@@ -13,34 +13,47 @@ contract ArtCommission is IERC721Receiver {
     // commission participants
     address public artist;
     address public buyer;
+    address public DAO;
     
-    uint256 upfrontPayment = 0; // mutually agreed initial payment for commission (?)
+    // commission payments
+    uint256 upfrontPayment = 0; // mutually agreed initial payment for commission
     //TODO use lastPayment
-    uint256 lastPayment = 0 ; // mutually agreed final payments for commission (?)
+    uint256 lastPayment = 0 ; // mutually agreed final payment for commission
     uint256 insuranceAmount; // amount parties input in case of passing dispute case to DAO
     uint256 fullPrice;
 
-    //TODO - Cannot dispute before this
-    uint256 numberOfDaysToCompletion; // deadline for accept art function?
-
+    // commission artwork details
     IERC721 artwork;
     uint256 artID;
 
-    bool buyerBreakFaith = false;
-    bool artistBreakFaith = false;
-
-    bool artistInitiated = true;
+    // do the time vars need to be uint256? (for efficient byte slot packing...?)
     uint256 timeInitiated;
-    mapping(address => uint256) balances;
+    //TODO - Cannot dispute before this
+    uint256 numberOfDaysToCompletion; // deadline for accept art function?
 
+    bool artistInitiated;
+    // each party's decision state regarding commission cancellation
+    bool buyerBreakFaith;
+    bool artistBreakFaith;
 
+    // commission progress states
     enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
     State public progress;
+
+    // need to work out events and remember to add emits to functions
+    //event CommissionProposed(address artist, address buyer, address contract);
+    //event CommissionConfirmed();
+    //event CommissionFunded(uint256 insuranceAmount, uint256 upfrontPayment, uint256 amount); // amount should be address(this).balance
+    //event ArtSubmitted(address artwork, uint256 artID);
+    //event Finalized();
+    //event Disputed();
+    //event MutualCancellation();
     
-    // buyer payment amount is locked in the contract upon deployment
+    // A buyer or artist initiates the commission contract and proposes an insurance amount each party needs to contribute,
+    // a total price the buyer will pay for the commission, an upfront payment amount the buyer will pay for the work
+    // (which is locked in the contract alongside the NFT artwork), and a deadline for the commission to be completed
     constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe) {
 
-        // NOTE: CHECK THIS, BUYER AND ARTIST NOT ASSIGNED AT THIS POINT
         //check that the buyer or the artist is creating the contract
         require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");
         
@@ -60,6 +73,8 @@ contract ArtCommission is IERC721Receiver {
         //check if the buyer or the artist will need to confirm the contract
         if (buyer == msg.sender) {
             artistInitiated = false;
+        } else {
+            artistInitiated = true;
         }
 
     }
@@ -79,13 +94,19 @@ contract ArtCommission is IERC721Receiver {
         _;
     }
 
-    // Implementation onERC721Received; if sender of nft to contract is not artist, reverts
+    modifier onlyDAO() {
+        require(msg.sender == DAO, "Not involved DAO");
+        _;
+    }
+
+    // Implementation onERC721Received; if the individual sending an NFT to the contract is not the artist, the transfer reverts
     function onERC721Received(address operator, address from, uint256 tokenID, bytes calldata data) public override returns (bytes4) {
         require(from == artist, "Artist must input nft");
         return this.onERC721Received.selector;
     }
 
-    //this confirms the parameters set in the constructor are ok with the other party
+    // For the commission to progress, the party who did not deploy the commission must confirm
+    // the proposed price and deadline details
     function contractConfirm() external onlyParties payable {
         //the party who did not propose the contract must confirm the project
         if (artistInitiated == false) {
@@ -98,14 +119,14 @@ contract ArtCommission is IERC721Receiver {
         progress = State.Confirmed;
     }
 
-    //Once the contract has been confirmed by both parties, add funds to the contract
+    // Once the commission's details are approved by both parties, they each fund the contract with half of the insurance amount.
+    // The buyer additionally funds the contract with the agreed upfront payment amount, which is locked in the contract until
+    // the final exchange of the artwork and commission payment.
     function fund() public onlyParties payable {
         require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
 
         if (msg.sender == artist) {
             require(msg.value == insuranceAmount/2, "Did not send insurance value");
-
-            balances[msg.sender] += msg.value;
         }
 
         if (msg.sender == buyer) {
@@ -115,18 +136,15 @@ contract ArtCommission is IERC721Receiver {
         if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
             progress = State.Funded;
         }
-
     }
 
-    //the artist submits work to the commission contract
+    // The artist submits their work to the commission contract, prior to this, the artist must have approved the contract as
+    // a recipient of an NFT (i.e. IERC721(nft).approve(address(commission_contract), tokenId))
     function acceptArt(address nft, uint256 tokenID) external onlyArtist {
         IERC721 _artwork = IERC721(nft); // temp IERC271(nft) to avoid storing before require checks
 
         require(progress == State.Funded, "Contract has not been funded by both parties");
         require(_artwork.ownerOf(tokenID) == msg.sender, "Sender is not owner of the nft");
-
-        // artist must have already approved this contract to recieve the nft
-        // such as IERC721(nft).approve(address(our contract), tokenId);
 
         // transfer nft from sender to this contract
         _artwork.safeTransferFrom(msg.sender, address(this), tokenID);
@@ -143,13 +161,10 @@ contract ArtCommission is IERC721Receiver {
     function payInFullAndRelease() external onlyBuyer payable {
         require(progress == State.WorkCompleted, "Artwork not submitted");
         //check that the msg.value is a payment in full
-        require(msg.value + upfrontPayment == fullPrice , "Not the expected full final payment");
+        require(msg.value == lastPayment , "Not the expected full final payment");
 
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
-
-        //Decrement the buyer balance - not sure this is the correct move TODO
-        balances[buyer] -= fullPrice;
         //transfer the payment to the artist
         payable(artist).transfer(fullPrice);
 
@@ -164,6 +179,7 @@ contract ArtCommission is IERC721Receiver {
         //reputation would have to be its own contract with a mapping that is called by commission contracts
     }
 
+    // If both parties agree to cancel the commission, the contract returns what they have funded
     function goodFaithRelease() public onlyParties {
         if (msg.sender == buyer) {
             buyerBreakFaith = true;
@@ -185,14 +201,53 @@ contract ArtCommission is IERC721Receiver {
 
     function raiseDispute() public onlyParties {
         //set some time requirement before someone can raise a dispute
+        uint256 elapsedDays = (block.timestamp - block.timestamp) / 1 days;
+        require(elapsedDays > numberOfDaysToCompletion, "Must leave time before transaction can be disputed");
         progress = State.Disputed;
 
-        //TODO:deal with the DAO contract
-        uint256 buyerRefund = balances[buyer];
-        uint256 artistRefund = balances[artist];
-        balances[artist] = 0;
-        balances[buyer] = 0;
-        payable(buyer).transfer(buyerRefund);
-        payable(artist).transfer(artistRefund);
+        //payable(buyer).transfer(buyerRefund);
+        //payable(artist).transfer(artistRefund);
+    }
+
+    // skeleton DAO result options -- sorry...kind of put some code based on what we discussed monday
+    // BUT feel free to change in accordance to the DAO contract implementation
+
+    // logic of DAO voting outcome 1: jury decides the artist wins the dispute
+    function artistWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
+
+        if (address(artwork) != address(0)) {
+            artwork.safeTransferFrom(address(this), artist, artID);
+        }
+        payable(artist).transfer(insuranceAmount/2);
+        payable(DAO).transfer(insuranceAmount/2); // buyer's insurance goes to DAO
+
+        progress = State.Completed;
+    }
+
+    // logic of DAO voting outcome 2: jury decides the buyer wins the dispute
+    function buyerWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
+
+        if (address(artwork) != address(0)) {
+            artwork.safeTransferFrom(address(this), buyer, artID);
+        }
+        payable(buyer).transfer(insuranceAmount/2);
+        payable(DAO).transfer(insuranceAmount/2); // artist's insurance goes to DAO
+
+        progress = State.Completed;
+    }
+
+    // logic of DAO voting outcome 3: jury decides neither party wins dispute
+    function neitherWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
+
+        if (address(artwork) != address(0)) {
+            artwork.safeTransferFrom(address(this), artist, artID);
+        }
+        payable(buyer).transfer(fullPrice);
+        payable(DAO).transfer(insuranceAmount);
+
+        progress = State.Completed;
     }
 }
