@@ -15,12 +15,11 @@ contract ArtCommission is IERC721Receiver {
     address public buyer;
     
     uint256 upfrontPayment = 0; // mutually agreed initial payment for commission (?)
-    //TODO use lastPayment
     uint256 lastPayment = 0 ; // mutually agreed final payments for commission (?)
     uint256 insuranceAmount; // amount parties input in case of passing dispute case to DAO
     uint256 fullPrice;
 
-    //TODO - Cannot dispute before this
+    //Cannot dispute before this time elapses
     uint256 numberOfDaysToCompletion; // deadline for accept art function?
 
     IERC721 artwork;
@@ -142,7 +141,7 @@ contract ArtCommission is IERC721Receiver {
     function payInFullAndRelease() external onlyBuyer payable {
         require(progress == State.WorkCompleted, "Artwork not submitted");
         //check that the msg.value is a payment in full
-        require(msg.value + upfrontPayment == fullPrice , "Not the expected full final payment");
+        require(msg.value == lastPayment , "Not the expected full final payment");
 
         //Transfer the work to the buyer
         artwork.safeTransferFrom(address(this), msg.sender, artID);
@@ -181,10 +180,13 @@ contract ArtCommission is IERC721Receiver {
 
     function raiseDispute() public onlyParties {
         //set some time requirement before someone can raise a dispute
+        uint256 elapsedDays = (block.timestamp - block.timestamp) / 1 days;
+        require(elapsedDays > numberOfDaysToCompletion, "Must leave time before transaction can be disputed");
         progress = State.Disputed;
 
-        //TODO:deal with the DAO contract
         payable(buyer).transfer(buyerRefund);
         payable(artist).transfer(artistRefund);
     }
+
+    //TODO:deal with the DAO contract
 }
