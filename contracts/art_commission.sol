@@ -58,7 +58,7 @@ contract ArtCommission is IERC721Receiver {
         require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");
         
         //require the amount of insurance to be more than .015 ETH in total, about .075 or $15 per party
-        require(_insuranceAmount > 7500000000000000, "Insurance too low");
+        require(_insuranceAmount >= 7500000000000000, "Insurance too low");
 
         buyer = _buyer;
         artist = _artist;
