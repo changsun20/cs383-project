@@ -13,11 +13,13 @@ contract ArtCommission is IERC721Receiver {
     // commission participants
     address public artist;
     address public buyer;
+
+    //DAO must be deployed first, then we can make this a constant
+    //right now it is initated on contract creation
     address public DAO;
     
     // commission payments
     uint256 upfrontPayment = 0; // mutually agreed initial payment for commission
-    //TODO use lastPayment
     uint256 lastPayment = 0 ; // mutually agreed final payment for commission
     uint256 insuranceAmount; // amount parties input in case of passing dispute case to DAO
     uint256 fullPrice;
@@ -26,10 +28,9 @@ contract ArtCommission is IERC721Receiver {
     IERC721 artwork;
     uint256 artID;
 
-    // do the time vars need to be uint256? (for efficient byte slot packing...?)
-    uint256 timeInitiated;
-    //TODO - Cannot dispute before this
-    uint256 numberOfDaysToCompletion; // deadline for accept art function?
+    //Changed time vars to uint from uint 256 for efficient byte slot packing...?)
+    uint timeInitiated;
+    uint numberOfDaysToCompletion; // grace period for artist to complete work
 
     bool artistInitiated;
     // each party's decision state regarding commission cancellation
@@ -39,8 +40,7 @@ contract ArtCommission is IERC721Receiver {
     // commission progress states
     enum State{Proposed, Confirmed, Funded, WorkCompleted, WorkPayed, Completed, Disputed}
     State public progress;
-
-    // need to work out events and remember to add emits to functions
+    //need to work out events and remember to add emits to functions
     //event CommissionProposed(address artist, address buyer, address contract);
     //event CommissionConfirmed();
     //event CommissionFunded(uint256 insuranceAmount, uint256 upfrontPayment, uint256 amount); // amount should be address(this).balance
@@ -52,7 +52,7 @@ contract ArtCommission is IERC721Receiver {
     // A buyer or artist initiates the commission contract and proposes an insurance amount each party needs to contribute,
     // a total price the buyer will pay for the commission, an upfront payment amount the buyer will pay for the work
     // (which is locked in the contract alongside the NFT artwork), and a deadline for the commission to be completed
-    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe) {
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe, address _daoAddress, ) {
 
         //check that the buyer or the artist is creating the contract
         require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");
@@ -69,6 +69,8 @@ contract ArtCommission is IERC721Receiver {
         numberOfDaysToCompletion = timeframe;
     
         progress = State.Proposed;
+
+        DAO = _daoAddress;
 
         //check if the buyer or the artist will need to confirm the contract
         if (buyer == msg.sender) {
@@ -177,6 +179,7 @@ contract ArtCommission is IERC721Receiver {
     function updateTrustworthiness() external {
         //TODO -- extra/if time
         //reputation would have to be its own contract with a mapping that is called by commission contracts
+        //for reputation to be gaurded to only commission contracts, we would need to track the address of each created commissioncontract and only allow these to update reputation
     }
 
     // If both parties agree to cancel the commission, the contract returns what they have funded
@@ -201,12 +204,9 @@ contract ArtCommission is IERC721Receiver {
 
     function raiseDispute() public onlyParties {
         //set some time requirement before someone can raise a dispute
-        uint256 elapsedDays = (block.timestamp - block.timestamp) / 1 days;
+        uint elapsedDays = (timeInitiated- block.timestamp) / 1 days;
         require(elapsedDays > numberOfDaysToCompletion, "Must leave time before transaction can be disputed");
         progress = State.Disputed;
-
-        //payable(buyer).transfer(buyerRefund);
-        //payable(artist).transfer(artistRefund);
     }
 
     // skeleton DAO result options -- sorry...kind of put some code based on what we discussed monday
