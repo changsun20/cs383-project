@@ -9,9 +9,7 @@ const CONTRACT_ADDRESS = ""
 
 async function main() {
     const provider = new ethers.JsonRpcProvider(env.SEPOLIA_RPC_URL);
-    
     const wallet = new ethers.Wallet("0x" + env.PRIVATE_KEY, provider);
-    
     const factory = new ethers.ContractFactory( CommissionAbi, CommissionBytecode,  wallet)
 
     const insurance = ethers.parseUnits("7500000000000000", "wei")
