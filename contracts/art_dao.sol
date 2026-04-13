@@ -35,6 +35,7 @@ contract ArtDAO {
 
     uint256 public constant MINT_INTERVAL = 7 days;
     uint256 public constant AUCTION_DURATION = 7 days;
+    uint256 public constant JURY_REWARD = 0.001 ether;
 
     // =========================================================
     //                          STATE
@@ -43,6 +44,8 @@ contract ArtDAO {
     uint256 public lastMintTime;
     uint256 public nextTokenId;
     uint256 public nextDisputeId;
+    uint256 public totalSupply;
+    uint256 public nextProposalId;
 
     /**
      * @dev Simple NFT ownership model.
@@ -108,6 +111,7 @@ contract ArtDAO {
         uint256 panelSize;
         uint256 votingStart;
         uint256 votingEnd;
+        uint256 totalJurorVotingPower;
 
         address[] jurors;
 
@@ -115,11 +119,26 @@ contract ArtDAO {
         uint256 buyerVotes;
         uint256 neitherVotes;
 
-        mapping(address => bool) hasVoted;
+        mapping(address => uint256) usedVotingPower;
         mapping(address => VoteOption) voteOf;
     }
 
     mapping(uint256 => DisputeCase) private disputes;
+
+    struct Proposal {
+        address creator;
+        address recipient;
+        uint256 amount;
+        uint256 startTime;
+        uint256 endTime;
+        uint256 forVotes;
+        uint256 againstVotes;
+        bool executed;
+        uint256 totalVotingPower;
+        mapping(address => uint256) usedVotingPower;
+    }
+
+    mapping(uint256 => Proposal) private proposals;
 
     // =========================================================
     //                          EVENTS
@@ -135,6 +154,10 @@ contract ArtDAO {
     event VoteCast(uint256 disputeId, address juror, VoteOption option);
     event DisputeResolved(uint256 disputeId, VoteOption outcome);
 
+    event ProposalCreated(uint256 proposalId, address creator, address recipient, uint256 amount, uint256 endTime);
+    event ProposalVoted(uint256 proposalId, address voter, bool support, uint256 votingPower);
+    event ProposalExecuted(uint256 proposalId);
+
     // =========================================================
     //                        CONSTRUCTOR
     // =========================================================
@@ -143,6 +166,7 @@ contract ArtDAO {
         lastMintTime = block.timestamp;
         nextTokenId = 1;
         nextDisputeId = 1;
+        nextProposalId = 1;
 
         _addHolderIfNeeded(address(this));
     }
@@ -365,6 +389,7 @@ contract ArtDAO {
             totalWeight -= weights[selectedIndex];
 
             d.jurors.push(candidates[selectedIndex]);
+            d.totalJurorVotingPower += weights[selectedIndex];
 
             emit JurorSelected(disputeId, candidates[selectedIndex]);
         }
@@ -386,17 +411,20 @@ contract ArtDAO {
         require(block.timestamp <= d.votingEnd, "Voting ended");
         require(option != VoteOption.None, "Invalid vote");
         require(_isJuror(disputeId, msg.sender), "Not selected juror");
-        require(!d.hasVoted[msg.sender], "Already voted");
+        require(d.usedVotingPower[msg.sender] == 0, "Already voted");
 
-        d.hasVoted[msg.sender] = true;
+        uint256 votingPower = holderBalance[msg.sender];
+        require(votingPower > 0, "No voting power");
+
+        d.usedVotingPower[msg.sender] = votingPower;
         d.voteOf[msg.sender] = option;
 
         if (option == VoteOption.Artist) {
-            d.artistVotes++;
+            d.artistVotes += votingPower;
         } else if (option == VoteOption.Buyer) {
-            d.buyerVotes++;
+            d.buyerVotes += votingPower;
         } else if (option == VoteOption.Neither) {
-            d.neitherVotes++;
+            d.neitherVotes += votingPower;
         }
 
         emit VoteCast(disputeId, msg.sender, option);
@@ -431,6 +459,13 @@ contract ArtDAO {
             IArtCommission(d.commission).buyerWins();
         } else {
             IArtCommission(d.commission).neitherWins();
+        }
+
+        for (uint256 i = 0; i < d.jurors.length; i++) {
+            address juror = d.jurors[i];
+            if (d.usedVotingPower[juror] > 0) {
+                payable(juror).transfer(JURY_REWARD);
+            }
         }
 
         emit DisputeResolved(disputeId, outcome);
@@ -472,7 +507,7 @@ contract ArtDAO {
         returns (bool hasVoted, VoteOption option)
     {
         DisputeCase storage d = disputes[disputeId];
-        return (d.hasVoted[juror], d.voteOf[juror]);
+        return (d.usedVotingPower[juror] > 0, d.voteOf[juror]);
     }
 
     /**
@@ -507,6 +542,8 @@ contract ArtDAO {
             require(tokenOwner[tokenId] == from, "Incorrect owner");
             require(holderBalance[from] > 0, "Insufficient holder balance");
             holderBalance[from]--;
+        } else {
+            totalSupply++;
         }
 
         _addHolderIfNeeded(to);
@@ -575,7 +612,7 @@ contract ArtDAO {
         DisputeCase storage d = disputes[disputeId];
 
         for (uint256 i = 0; i < d.jurors.length; i++) {
-            if (!d.hasVoted[d.jurors[i]]) {
+            if (d.usedVotingPower[d.jurors[i]] == 0) {
                 return false;
             }
         }
@@ -594,21 +631,112 @@ contract ArtDAO {
         uint256 a = d.artistVotes;
         uint256 b = d.buyerVotes;
         uint256 n = d.neitherVotes;
+        uint256 totalVoted = a + b + n;
 
-        if (a > b && a > n) {
-            return VoteOption.Artist;
-        }
-
-        if (b > a && b > n) {
-            return VoteOption.Buyer;
-        }
-
-        if (n > a && n > b) {
+        if (totalVoted == 0) {
             return VoteOption.Neither;
         }
 
-        // Tie case
+        uint256 half = totalVoted * 50 / 100;
+
+        if (a > half) {
+            return VoteOption.Artist;
+        }
+
+        if (b > half) {
+            return VoteOption.Buyer;
+        }
+
+        if (n > half) {
+            return VoteOption.Neither;
+        }
+
         return VoteOption.Neither;
+    }
+
+    function createProposal(address recipient, uint256 amount) external returns (uint256) {
+        require(holderBalance[msg.sender] > 0, "Not a DAO member");
+        require(recipient != address(0), "Invalid recipient");
+        require(amount > 0, "Amount must be positive");
+
+        uint256 proposalId = nextProposalId;
+        nextProposalId++;
+
+        Proposal storage p = proposals[proposalId];
+        p.creator = msg.sender;
+        p.recipient = recipient;
+        p.amount = amount;
+        p.startTime = block.timestamp;
+        p.endTime = block.timestamp + 7 days;
+        p.executed = false;
+        p.totalVotingPower = totalSupply;
+
+        emit ProposalCreated(proposalId, msg.sender, recipient, amount, p.endTime);
+        return proposalId;
+    }
+
+    function voteProposal(uint256 proposalId, bool support) external {
+        Proposal storage p = proposals[proposalId];
+        require(p.creator != address(0), "Proposal does not exist");
+        require(block.timestamp <= p.endTime, "Voting ended");
+        require(!p.executed, "Proposal already executed");
+
+        uint256 votingPower = holderBalance[msg.sender];
+        require(votingPower > 0, "No voting power");
+        require(p.usedVotingPower[msg.sender] == 0, "Already voted");
+
+        p.usedVotingPower[msg.sender] = votingPower;
+
+        if (support) {
+            p.forVotes += votingPower;
+        } else {
+            p.againstVotes += votingPower;
+        }
+
+        emit ProposalVoted(proposalId, msg.sender, support, votingPower);
+    }
+
+    function executeProposal(uint256 proposalId) external {
+        Proposal storage p = proposals[proposalId];
+        require(p.creator != address(0), "Proposal does not exist");
+        require(block.timestamp > p.endTime, "Voting not ended");
+        require(!p.executed, "Proposal already executed");
+
+        uint256 totalVotes = p.forVotes + p.againstVotes;
+        require(totalVotes > 0, "No votes cast");
+
+        uint256 threshold = p.totalVotingPower * 67 / 100;
+        require(p.forVotes >= threshold, "Insufficient support");
+
+        p.executed = true;
+        payable(p.recipient).transfer(p.amount);
+
+        emit ProposalExecuted(proposalId);
+    }
+
+    function getProposal(uint256 proposalId) external view returns (
+        address creator,
+        address recipient,
+        uint256 amount,
+        uint256 startTime,
+        uint256 endTime,
+        uint256 forVotes,
+        uint256 againstVotes,
+        bool executed,
+        uint256 totalVotingPower
+    ) {
+        Proposal storage p = proposals[proposalId];
+        require(p.creator != address(0), "Proposal does not exist");
+
+        creator = p.creator;
+        recipient = p.recipient;
+        amount = p.amount;
+        startTime = p.startTime;
+        endTime = p.endTime;
+        forVotes = p.forVotes;
+        againstVotes = p.againstVotes;
+        executed = p.executed;
+        totalVotingPower = p.totalVotingPower;
     }
 
     receive() external payable {}
