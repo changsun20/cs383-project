@@ -38,7 +38,7 @@ contract ArtCommission is IERC721Receiver {
     uint256 public fullPrice;
     uint256 public upfrontPayment;
     uint256 public lastPayment;
-    uint256 public insurance;
+    uint256 public insuranceAmount;
 
     // commission artwork details
     uint256 public artID;
@@ -97,7 +97,6 @@ contract ArtCommission is IERC721Receiver {
      * @param _buyer Buyer address
      * @param _artist Artist address
      * @param _dao DAO contract address
-     * @param _reputation Reputation contract address
      * @param _insuranceAmount Total insurance amount locked in the contract
      * @param _price Total commission price
      * @param _upfrontPayment Upfront payment included in buyer's funding

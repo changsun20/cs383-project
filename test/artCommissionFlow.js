@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 const { expect } = require("chai");
 
 describe("ArtCommission Normal Flow", () => {
-  let reputation, artDAO, nft, commission;
+  let artDAO, nft, commission;
   let buyer, artist, deployer;
   
   const price = ethers.parseEther("1.0");
@@ -12,9 +12,6 @@ describe("ArtCommission Normal Flow", () => {
 
   before(async () => {
     [deployer, buyer, artist] = await ethers.getSigners();
-    
-    const Reputation = await ethers.getContractFactory("Reputation");
-    reputation = await Reputation.deploy();
     
     const ArtDAO = await ethers.getContractFactory("ArtDAO");
     artDAO = await ArtDAO.deploy();
@@ -30,12 +27,11 @@ describe("ArtCommission Normal Flow", () => {
     commission = await ArtCommission.connect(buyer).deploy(
       buyer.address,
       artist.address,
-      artDAO.target,
-      reputation.target,
       insurance,
       price,
       upfront,
-      timeframe
+      timeframe,
+      artDAO.target
     );
 
     await commission.connect(artist).contractConfirm();
@@ -56,8 +52,5 @@ describe("ArtCommission Normal Flow", () => {
 
     expect(await nft.ownerOf(1)).to.equal(buyer.address);
     expect(await commission.progress()).to.equal(4);
-
-    expect(await reputation.reputation_score(artist.address)).to.equal(1);
-    expect(await reputation.reputation_score(buyer.address)).to.equal(1);
   });
 });
