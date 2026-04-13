@@ -35,7 +35,7 @@ async function main() {
 
     //artist action - fund the contract
 
-    //create an nft
+    //create an nft - use MyTestNFT.sol
     //artist action - submit nft
 
     //buyer action - send last payment, recieve nft, resolve transaction
