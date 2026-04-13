@@ -18,13 +18,6 @@ interface IArtDAO {
 }
 
 /**
- * @dev Interface used to communicate with the reputation contract.
- */
-interface IReputation {
-    function adjust(address user, int256 delta) external;
-}
-
-/**
  * @title ArtCommission
  * @dev Handles the lifecycle of one commission between a buyer and an artist.
  *
@@ -41,38 +34,34 @@ contract ArtCommission is IERC721Receiver {
     //                         STORAGE
     // =========================================================
 
-    // Participants
-    address public artist;
-    address public buyer;
-    address public DAO;
-
-    // External helper contracts
-    IReputation public reputation;
-
-    // Payments
+    // payments
+    uint256 public fullPrice;
     uint256 public upfrontPayment;
     uint256 public lastPayment;
     uint256 public insuranceAmount;
-    uint256 public fullPrice;
 
-    // Artwork details
-    IERC721 public artwork;
+    // commission artwork details
     uint256 public artID;
+    IERC721 public artwork;
 
-    // Timing
-    uint256 public timeInitiated;
-    uint256 public numberOfDaysToCompletion;
+    // commission participants
+    address public immutable artist;
+    address public immutable buyer;
+    address public immutable DAO;
 
-    // Contract creation direction
-    bool public artistInitiated;
+    bool artistInitiated;
 
     // Mutual cancellation approvals
-    bool public buyerBreakFaith;
-    bool public artistBreakFaith;
+    bool buyerBreakFaith;
+    bool artistBreakFaith;
 
     // Dispute info
     uint256 public disputeId;
     bool public daoCaseCreated;
+
+    // Commission timeline variables
+    uint timeInitiated;
+    uint numberOfDaysToCompletion; // grace period for artist to complete work
 
     // Commission progress
     enum State {
@@ -97,7 +86,7 @@ contract ArtCommission is IERC721Receiver {
     event GoodFaithCancelled();
     event DisputeRaised(uint256 disputeId);
     event ResolvedByDAO(string outcome);
-
+    
     // =========================================================
     //                        CONSTRUCTOR
     // =========================================================
@@ -108,34 +97,26 @@ contract ArtCommission is IERC721Receiver {
      * @param _buyer Buyer address
      * @param _artist Artist address
      * @param _dao DAO contract address
-     * @param _reputation Reputation contract address
      * @param _insuranceAmount Total insurance amount locked in the contract
      * @param _price Total commission price
      * @param _upfrontPayment Upfront payment included in buyer's funding
      * @param timeframe Time allowed before dispute can be raised
      */
-    constructor(
-        address _buyer,
-        address _artist,
-        address _dao,
-        address _reputation,
-        uint256 _insuranceAmount,
-        uint256 _price,
-        uint256 _upfrontPayment,
-        uint256 timeframe
-    ) {
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe, address _dao) {
+
+        //check that the buyer or the artist is creating the contract
         require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");
         require(_buyer != address(0), "Invalid buyer");
         require(_artist != address(0), "Invalid artist");
         require(_dao != address(0), "Invalid DAO");
-        require(_reputation != address(0), "Invalid reputation");
-        require(_insuranceAmount > 7500000000000000, "Insurance too low");
+        
+        //require the amount of insurance to be more than .015 ETH in total, about .075 or $15 per party
+        require(_insuranceAmount >= 7500000000000000, "Insurance too low");
         require(_price >= _upfrontPayment, "Upfront exceeds full price");
 
         buyer = _buyer;
         artist = _artist;
         DAO = _dao;
-        reputation = IReputation(_reputation);
 
         insuranceAmount = _insuranceAmount;
         upfrontPayment = _upfrontPayment;
@@ -187,13 +168,9 @@ contract ArtCommission is IERC721Receiver {
      * @dev Allows this contract to receive NFT artwork via safeTransferFrom.
      * Only the artist is allowed to send the NFT in.
      */
-    function onERC721Received(
-        address operator,
-        address from,
-        uint256 tokenID,
-        bytes calldata data
-    ) public override returns (bytes4) {
-        require(from == artist, "Artist must input nft");
+    function onERC721Received(address operator, address from, uint256 tokenID, bytes calldata data) public override returns (bytes4) {
+        require(from == artist, "Artist must input art nft");
+        require(operator == address(this), "Commission contract is not the art nft recipient");
         return this.onERC721Received.selector;
     }
 
@@ -205,16 +182,18 @@ contract ArtCommission is IERC721Receiver {
      * @dev The party who did not deploy the contract must confirm the commission.
      */
     function contractConfirm() external onlyParties {
-        require(progress == State.Proposed, "Invalid state");
+        require(progress == State.Proposed, "Commission proposal details not yet approved by both parties");
 
         if (artistInitiated == false) {
-            require(msg.sender == artist, "Artist must confirm");
+            require(msg.sender == artist, "Artist must approve proposed commission");
         } else {
-            require(msg.sender == buyer, "Buyer must confirm");
+            require(msg.sender == buyer, "Buyer must approve proposed commission");
         }
 
         progress = State.Confirmed;
         emit ContractConfirmed(msg.sender);
+
+        timeInitiated = block.timestamp;
     }
 
     /**
@@ -226,8 +205,8 @@ contract ArtCommission is IERC721Receiver {
      * Buyer sends:
      * - insuranceAmount / 2 + upfrontPayment
      */
-    function fund() external onlyParties payable {
-        require(progress == State.Confirmed, "Contract not confirmed");
+    function fund() public onlyParties payable {
+        require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
 
         if (msg.sender == artist) {
             require(msg.value == insuranceAmount / 2, "Wrong artist funding");
@@ -244,18 +223,20 @@ contract ArtCommission is IERC721Receiver {
         if (address(this).balance == (upfrontPayment + insuranceAmount)) {
             progress = State.Funded;
         }
+
+        emit Funded(msg.sender, msg.value);
     }
 
     /**
      * @dev The artist submits the NFT artwork after both parties have funded.
      */
     function acceptArt(address nft, uint256 tokenID) external onlyArtist {
-        require(progress == State.Funded, "Contract not funded");
+        require(progress == State.Funded, "Contract has not been funded by both parties");
 
         IERC721 _artwork = IERC721(nft);
-        require(_artwork.ownerOf(tokenID) == msg.sender, "Sender not owner of NFT");
+        require(_artwork.ownerOf(tokenID) == msg.sender, "Sender is not owner of the nft");
 
-        // Transfer NFT into escrow.
+        // Deposit NFT to contract for escrow
         _artwork.safeTransferFrom(msg.sender, address(this), tokenID);
 
         artwork = _artwork;
@@ -272,24 +253,16 @@ contract ArtCommission is IERC721Receiver {
      */
     function payInFullAndRelease() external onlyBuyer payable {
         require(progress == State.WorkCompleted, "Artwork not submitted");
-        require(msg.value == lastPayment, "Wrong final payment");
+        require(msg.value == lastPayment , "Not the expected full final payment");
 
         // Transfer the artwork to the buyer.
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
-        // Transfer full commission payment to the artist.
-        // The contract already holds upfrontPayment, and buyer now sent lastPayment.
-        payable(artist).transfer(fullPrice);
-
-        // Return insurance to both parties.
-        payable(artist).transfer(insuranceAmount / 2);
-        payable(buyer).transfer(insuranceAmount / 2);
+        //transfer the payment to the artist
+        payable(artist).transfer(msg.value + upfrontPayment + (insuranceAmount/2));
+        payable(buyer).transfer(insuranceAmount/2);
 
         progress = State.Completed;
-
-        // Successful completion: both sides get positive reputation.
-        reputation.adjust(artist, 1);
-        reputation.adjust(buyer, 1);
 
         emit CompletedSuccessfully(buyer, artist);
     }
@@ -297,14 +270,7 @@ contract ArtCommission is IERC721Receiver {
     /**
      * @dev If both parties agree to cancel, return funds and artwork safely.
      */
-    function goodFaithRelease() external onlyParties {
-        require(
-            progress == State.Confirmed ||
-            progress == State.Funded ||
-            progress == State.WorkCompleted,
-            "Invalid state"
-        );
-
+    function goodFaithRelease() public onlyParties {
         if (msg.sender == buyer) {
             buyerBreakFaith = true;
         }
@@ -313,27 +279,21 @@ contract ArtCommission is IERC721Receiver {
             artistBreakFaith = true;
         }
 
-        require(
-            buyerBreakFaith && artistBreakFaith,
-            "Both parties must approve cancellation"
-        );
+        require(buyerBreakFaith == true && artistBreakFaith == true, "Both parties must approve cancellation");
 
-        // If the artwork has already been submitted, return it to the artist.
-        if (address(artwork) != address(0)) {
-            artwork.safeTransferFrom(address(this), artist, artID);
-        }
-
-        // Refund buyer's payment if it is locked in the contract.
-        if (address(this).balance >= upfrontPayment) {
+        // if funds to return
+        if (address(this).balance > 0 && artwork.ownerOf(artID) != address(this)) {
             payable(buyer).transfer(upfrontPayment);
-        }
 
-        // Return insurance halves if available.
-        uint256 remainingBalance = address(this).balance;
+            payable(artist).transfer(insuranceAmount/2);
+            payable(buyer).transfer(insuranceAmount/2);
+        
+        } else if (address(this).balance > 0 && artwork.ownerOf(artID) == address(this)) {
+            artwork.safeTransferFrom(address(this), artist, artID);
+            payable(artist).transfer(upfrontPayment);
 
-        if (remainingBalance >= insuranceAmount) {
-            payable(artist).transfer(insuranceAmount / 2);
-            payable(buyer).transfer(insuranceAmount / 2);
+            payable(artist).transfer(insuranceAmount/2);
+            payable(buyer).transfer(insuranceAmount/2);
         }
 
         progress = State.Completed;
@@ -358,12 +318,9 @@ contract ArtCommission is IERC721Receiver {
         );
         require(!daoCaseCreated, "Dispute already raised");
 
-        uint256 elapsedDays = (block.timestamp - timeInitiated) / 1 days;
-        require(
-            elapsedDays > numberOfDaysToCompletion,
-            "Must wait until completion period passes"
-        );
-
+        uint elapsedDays = (block.timestamp - timeInitiated) / 1 days;  // current time - time commission initiated
+        require(elapsedDays > numberOfDaysToCompletion, "Must leave time before transaction can be disputed");
+        
         progress = State.Disputed;
 
         // Ask the DAO to create the dispute case.
@@ -380,12 +337,11 @@ contract ArtCommission is IERC721Receiver {
      * - If artwork exists in escrow, return it to artist.
      * - Artist receives their own insurance half.
      * - DAO receives buyer's insurance half as penalty / arbitration pool.
-     * - Reputation updates accordingly.
      */
-    function artistWins() external onlyDAO {
-        require(progress == State.Disputed, "Not disputed");
+    function artistWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (address(artwork) != address(0)) {
+        if (artwork.ownerOf(artID) == address(this)) {
             artwork.safeTransferFrom(address(this), artist, artID);
         }
 
@@ -393,9 +349,6 @@ contract ArtCommission is IERC721Receiver {
         payable(DAO).transfer(insuranceAmount / 2);
 
         progress = State.Completed;
-
-        reputation.adjust(artist, 1);
-        reputation.adjust(buyer, -1);
 
         emit ResolvedByDAO("Artist");
     }
@@ -407,12 +360,11 @@ contract ArtCommission is IERC721Receiver {
      * - If artwork exists in escrow, transfer it to buyer.
      * - Buyer gets one insurance half.
      * - DAO gets the other insurance half.
-     * - Reputation updates accordingly.
      */
-    function buyerWins() external onlyDAO {
-        require(progress == State.Disputed, "Not disputed");
+    function buyerWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (address(artwork) != address(0)) {
+        if (artwork.ownerOf(artID) == address(this)) {
             artwork.safeTransferFrom(address(this), buyer, artID);
         }
 
@@ -420,9 +372,6 @@ contract ArtCommission is IERC721Receiver {
         payable(DAO).transfer(insuranceAmount / 2);
 
         progress = State.Completed;
-
-        reputation.adjust(buyer, 1);
-        reputation.adjust(artist, -1);
 
         emit ResolvedByDAO("Buyer");
     }
@@ -434,15 +383,13 @@ contract ArtCommission is IERC721Receiver {
      * - If artwork exists, return it to artist.
      * - Refund buyer's payment if still locked.
      * - DAO receives insurance.
-     * - Both reputations decrease.
      */
-    function neitherWins() external onlyDAO {
-        require(progress == State.Disputed, "Not disputed");
+    function neitherWins() public onlyDAO payable {
+        require(progress == State.Disputed, "Voting outcome only applicable for disputed commissions");
 
-        if (address(artwork) != address(0)) {
+        if (artwork.ownerOf(artID) == address(this)) {
             artwork.safeTransferFrom(address(this), artist, artID);
         }
-
         // Refund buyer's locked payment if still in contract.
         uint256 bal = address(this).balance;
 
@@ -458,9 +405,6 @@ contract ArtCommission is IERC721Receiver {
         }
 
         progress = State.Completed;
-
-        reputation.adjust(buyer, -1);
-        reputation.adjust(artist, -1);
 
         emit ResolvedByDAO("Neither");
     }

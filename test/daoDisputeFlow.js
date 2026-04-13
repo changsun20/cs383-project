@@ -61,9 +61,6 @@ describe("DAO Dispute Resolution Flow", () => {
     }
 
     async function createDisputeScenario(artDAO, voteChoice) {
-        const Reputation = await ethers.getContractFactory("Reputation");
-        const reputation = await Reputation.deploy();
-
         const ERC721Mock = await ethers.getContractFactory("ERC721Mock");
         const nft = await ERC721Mock.deploy("Test Art", "ART");
         await nft.mint(artist.address, 1);
@@ -72,12 +69,11 @@ describe("DAO Dispute Resolution Flow", () => {
         const commission = await ArtCommission.connect(buyer).deploy(
             buyer.address,
             artist.address,
-            artDAO.target,
-            reputation.target,
             insurance,
             price,
             upfront,
-            timeframe
+            timeframe,
+            artDAO.target
         );
 
         await commission.connect(artist).contractConfirm();
@@ -111,45 +107,39 @@ describe("DAO Dispute Resolution Flow", () => {
 
         await artDAO.resolveDispute(disputeId);
 
-        return { commission, nft, reputation, disputeId };
+        return { commission, nft, disputeId };
     }
 
     it("Artist win", async () => {
         const artDAO = await setupNewDAO();
-        const { commission, nft, reputation } = await createDisputeScenario(
+        const { commission, nft } = await createDisputeScenario(
             artDAO,
             VoteOption.Artist
         );
 
         expect(await commission.progress()).to.equal(4);
         expect(await nft.ownerOf(1)).to.equal(artist.address);
-        expect(await reputation.reputation_score(artist.address)).to.equal(1);
-        expect(await reputation.reputation_score(buyer.address)).to.equal(-1);
     });
 
     it("Buyer win", async () => {
         const artDAO = await setupNewDAO();
-        const { commission, nft, reputation } = await createDisputeScenario(
+        const { commission, nft } = await createDisputeScenario(
             artDAO,
             VoteOption.Buyer
         );
 
         expect(await commission.progress()).to.equal(4);
         expect(await nft.ownerOf(1)).to.equal(buyer.address);
-        expect(await reputation.reputation_score(buyer.address)).to.equal(1);
-        expect(await reputation.reputation_score(artist.address)).to.equal(-1);
     });
 
     it("Neither win", async () => {
         const artDAO = await setupNewDAO();
-        const { commission, nft, reputation } = await createDisputeScenario(
+        const { commission, nft } = await createDisputeScenario(
             artDAO,
             VoteOption.Neither
         );
 
         expect(await commission.progress()).to.equal(4);
         expect(await nft.ownerOf(1)).to.equal(artist.address);
-        expect(await reputation.reputation_score(buyer.address)).to.equal(-1);
-        expect(await reputation.reputation_score(artist.address)).to.equal(-1);
     });
 });
