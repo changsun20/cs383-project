@@ -27,7 +27,8 @@ async function main() {
     console.log(JSON.stringify(receipt, null, 2));
     //console.dir(receipt, { depth: null });
     const value = BigInt(receipt.logs[1].data);
-    console.log("Minted NFT " + value.toString())
+    const nftAddress = String(receipt.logs[1].address)
+    console.log("Minted NFT " + value.toString() + " address " + nftAddress)
     /*
     const [transferEvent] = receipt.logs;
     const { tokenId } = transferEvent.args;

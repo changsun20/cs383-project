@@ -20,5 +20,8 @@ module.exports = {
       url: String(process.env.SEPOLIA_RPC_URL),
       accounts: [`0x${process.env.PRIVATE_KEY}`, `0x${process.env.PRIVATE_KEY_2}`]
     }
+  },
+  etherscan: {
+    apiKey: process.env.ETHERSCAN_API_KEY
   }
 };
