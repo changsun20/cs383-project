@@ -76,7 +76,6 @@ contract ArtCommission is IERC721Receiver {
         } else {
             artistInitiated = true;
         }
-
     }
 
     modifier onlyArtist() {
