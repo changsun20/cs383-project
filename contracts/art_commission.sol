@@ -50,7 +50,7 @@ contract ArtCommission is IERC721Receiver {
     // A buyer or artist initiates the commission contract and proposes an insurance amount each party needs to contribute,
     // a total price the buyer will pay for the commission, an upfront payment amount the buyer will pay for the work
     // (which is locked in the contract alongside the NFT artwork), and a deadline for the commission to be completed
-    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe, address _daoAddress, ) {
+    constructor(address _buyer, address _artist, uint256 _insuranceAmount, uint256 _price, uint256 _upfrontPayment, uint256 timeframe, address _daoAddress) {
 
         //check that the buyer or the artist is creating the contract
         require(msg.sender == _buyer || msg.sender == _artist, "Third party cannot initiate contract");

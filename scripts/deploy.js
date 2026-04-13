@@ -1,10 +1,12 @@
 //To deploy the TestNFT contract
 async function main() {
-  const MyNFT = await ethers.getContractFactory("MyNFT")
+  const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL);
+  const walletTwo = new ethers.Wallet("0x" + process.env.PRIVATE_KEY_2, provider)
+  const MyNFT = await ethers.getContractFactory("MyTestNFT", walletTwo)
 
   // Start deployment, returning a promise that resolves to a contract object
   const myNFT = await MyNFT.deploy()
-  await myNFT.deployed()
+  //await myNFT.deployed()
   console.log("Contract deployed to address:", myNFT.address)
 }
 
