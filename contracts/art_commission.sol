@@ -216,8 +216,6 @@ contract ArtCommission is IERC721Receiver {
             require(msg.value == (insuranceAmount / 2) + upfrontPayment, "Wrong buyer funding");
         }
 
-        emit Funded(msg.sender, msg.value);
-
         // Move to Funded state once the contract holds exactly:
         // upfront payment + total insurance
         if (address(this).balance == (upfrontPayment + insuranceAmount)) {
@@ -408,6 +406,4 @@ contract ArtCommission is IERC721Receiver {
 
         emit ResolvedByDAO("Neither");
     }
-
-    receive() external payable {}
 }
