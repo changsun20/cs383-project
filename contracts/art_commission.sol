@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-// Import this file to use console.log
 import "hardhat/console.sol";
 
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -126,16 +125,16 @@ contract ArtCommission is IERC721Receiver {
         fullPrice = _price;
 
         numberOfDaysToCompletion = timeframe;
-    
+        timeInitiated = block.timestamp;
+
         progress = State.Proposed;
 
-        //check if the buyer or the artist will need to confirm the contract
+        // Track who initiated the contract.
         if (buyer == msg.sender) {
             artistInitiated = false;
         } else {
             artistInitiated = true;
         }
-
     }
 
     // =========================================================
@@ -211,14 +210,18 @@ contract ArtCommission is IERC721Receiver {
         require(progress == State.Confirmed, "Contract has not been confirmed by both parties");
 
         if (msg.sender == artist) {
-            require(msg.value == insuranceAmount/2, "Did not send insurance value");
+            require(msg.value == insuranceAmount / 2, "Wrong artist funding");
         }
 
         if (msg.sender == buyer) {
-            require(msg.value == (insuranceAmount/2) + upfrontPayment, "Did not pay insurance and deposit");
+            require(msg.value == (insuranceAmount / 2) + upfrontPayment, "Wrong buyer funding");
         }
 
-        if (payable(address(this)).balance == (upfrontPayment + insuranceAmount)) {
+        emit Funded(msg.sender, msg.value);
+
+        // Move to Funded state once the contract holds exactly:
+        // upfront payment + total insurance
+        if (address(this).balance == (upfrontPayment + insuranceAmount)) {
             progress = State.Funded;
         }
 
@@ -237,7 +240,6 @@ contract ArtCommission is IERC721Receiver {
         // Deposit NFT to contract for escrow
         _artwork.safeTransferFrom(msg.sender, address(this), tokenID);
 
-        // store nft details
         artwork = _artwork;
         artID = tokenID;
 
@@ -254,7 +256,7 @@ contract ArtCommission is IERC721Receiver {
         require(progress == State.WorkCompleted, "Artwork not submitted");
         require(msg.value == lastPayment , "Not the expected full final payment");
 
-        //Transfer the work to the buyer
+        // Transfer the artwork to the buyer.
         artwork.safeTransferFrom(address(this), msg.sender, artID);
 
         //transfer the payment to the artist
@@ -273,6 +275,7 @@ contract ArtCommission is IERC721Receiver {
         if (msg.sender == buyer) {
             buyerBreakFaith = true;
         }
+
         if (msg.sender == artist) {
             artistBreakFaith = true;
         }
@@ -342,8 +345,9 @@ contract ArtCommission is IERC721Receiver {
         if (artwork.ownerOf(artID) == address(this)) {
             artwork.safeTransferFrom(address(this), artist, artID);
         }
-        payable(artist).transfer(insuranceAmount/2);
-        payable(DAO).transfer(insuranceAmount/2); // buyer's insurance goes to DAO
+
+        payable(artist).transfer(insuranceAmount / 2);
+        payable(DAO).transfer(insuranceAmount / 2);
 
         progress = State.Completed;
 
@@ -364,8 +368,9 @@ contract ArtCommission is IERC721Receiver {
         if (artwork.ownerOf(artID) == address(this)) {
             artwork.safeTransferFrom(address(this), buyer, artID);
         }
-        payable(buyer).transfer(insuranceAmount/2);
-        payable(DAO).transfer(insuranceAmount/2); // artist's insurance goes to DAO
+
+        payable(buyer).transfer(insuranceAmount / 2);
+        payable(DAO).transfer(insuranceAmount / 2);
 
         progress = State.Completed;
 
@@ -404,4 +409,6 @@ contract ArtCommission is IERC721Receiver {
 
         emit ResolvedByDAO("Neither");
     }
+
+    receive() external payable {}
 }
