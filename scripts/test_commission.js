@@ -1,20 +1,22 @@
 
 const { ethers } = require("hardhat");
-require('dotenv').config()
+require("dotenv").config({path: '../.env'});
  
-const CommissionArtifact = require("../artifacts/contracts/art_commission.sol/art_commission.json");
-const CommissionABI = CommissionArtifact.Abi;
-const commissionBytecode = CommissionArtifact.bytecode;
-const CONTRACT_ADDRESS = ""
+const CommissionArtifact = require("../artifacts/contracts/art_commission.sol/ArtCommission.json");
+const CommissionABI = CommissionArtifact.abi;
+const CommissionBytecode = CommissionArtifact.bytecode;
+//const CONTRACT_ADDRESS = ""
 const NFT_CONTRACT_ADDRESS = "0x08a9003402b80001282f192baec5cd16a7fbc834"
 
 
 async function main() {
     //const [buyer, artist] = await ethers.getSigners();
-    const provider = new ethers.JsonRpcProvider(env.SEPOLIA_RPC_URL);
-    const wallet = new ethers.Wallet("0x" + env.PRIVATE_KEY, provider);
-    const walletTwo = new ethers.Wallet("0x" + env.PRIVATE_KEY_2, provider)
-    const factory = new ethers.ContractFactory( CommissionAbi, CommissionBytecode,  wallet)
+    const provider = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC_URL);
+    //buyer
+    const wallet = new ethers.Wallet("0x" + process.env.PRIVATE_KEY, provider)
+    //artist
+    const walletTwo = new ethers.Wallet("0x" + process.env.PRIVATE_KEY_2, provider)
+    const factory = new ethers.ContractFactory(CommissionABI, CommissionBytecode,  wallet)
 
     const insurance = ethers.parseUnits("7500000000000000", "wei")
     const price = ethers.parseUnits("2000000000000000", "wei")
@@ -29,7 +31,7 @@ async function main() {
 
     //deploy with buyer, artist, insurance, price, upfrontpayment, timeframe, address of dao
     //432000 = 5 days in seconds
-    const contract = await factory.deploy(env.MY_ADDRESS, "", insurance, price, upfrontPayment, 432000 ,"" )
+    const contract = await factory.deploy(wallet.address, walletTwo.address, insurance, price, upfrontPayment, 432000 ,"0x0000000000000000000000000000000000000000" )
     //create a connection from the artist account to the contract
     const contractAsArtist = contract.connect(walletTwo)
 
