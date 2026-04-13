@@ -124,7 +124,6 @@ contract ArtCommission is IERC721Receiver {
         fullPrice = _price;
 
         numberOfDaysToCompletion = timeframe;
-        timeInitiated = block.timestamp;
 
         progress = State.Proposed;
 
