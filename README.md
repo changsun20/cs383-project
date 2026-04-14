@@ -13,6 +13,7 @@ The repository includes two core Solidity contracts alongside supporting test fi
 - `test/daoDisputeFlow.js` – tests dispute creation, jury voting, and DAO resolution logic
 - `hardhat.config.js` – Hardhat configuration file
 - `.github/workflows/compile-and-test.yaml` – CI workflow for compiling and running tests
+- `docs/` – VitePress documentation source files
 
 ```
 .
@@ -42,6 +43,24 @@ To compile and run the test suite locally, install dependencies and execute the 
 npm install
 npx hardhat compile
 npx hardhat test
+```
+
+### Documentation
+
+A comprehensive documentation site is available, built with VitePress and automatically deployed to GitHub Pages.
+
+**Online documentation:** [https://changsun20.github.io/cs383-project/](https://changsun20.github.io/cs383-project/)
+
+**Local development:**
+```sh
+# Install dependencies (includes vitepress)
+npm install
+
+# Preview documentation locally
+npx vitepress dev docs
+
+# Build documentation
+npx vitepress build docs
 ```
 
 ### Known limitations
