@@ -4,7 +4,8 @@ The ArtCommission and ArtDAO contracts together form an on-chain commission plat
 
 The repository includes two core Solidity contracts alongside supporting test files. The contracts implement the full lifecycle of a commission and the governance mechanics of the DAO, including dispute arbitration, jury selection, and treasury voting.
 
-Project structure:
+### Project structure
+
 - `contracts/art_commission.sol` – manages the escrow, state transitions, and resolution of a single art commission
 - `contracts/art_dao.sol` – governs DAO membership, dispute jury selection, voting, and treasury proposals
 - `contracts/test/ERC721Mock.sol` – a mock ERC-721 implementation used for testing NFT transfers
@@ -33,10 +34,23 @@ Project structure:
     └── daoDisputeFlow.js
 ```
 
+### Setup and running 
 
-To run the test suite locally, install dependencies and execute the Hardhat tests:
+To compile and run the test suite locally, install dependencies and execute the Hardhat tests:
 
 ```sh
 npm install
+npx hardhat compile
 npx hardhat test
 ```
+
+### Known limitations
+
+The current implementation contains several known limitations that may affect production readiness:
+
+- Fund() Race Condition: If both artist and buyer call fund() in the same block, the contract may remain stuck in the Confirmed state, requiring a goodFaithRelease() to recover assets.
+- False DAO Address Injection: The contract deployer can supply an arbitrary DAO address; the confirming party must verify that the legitimate DAO address was used.
+- Constant Juror Reward: Jurors receive a fixed reward from the DAO treasury regardless of dispute size, which may lead to treasury depletion over repeated small disputes.
+- Dynamic Voting Power After Juror Selection: Juror voting power is calculated from current DAO NFT holdings at vote time, not at selection time, allowing jurors to transfer tokens to alter their influence.
+
+For a complete and detailed description of all invariants, workflows, and known issues, please refer to the full specification documentation.
